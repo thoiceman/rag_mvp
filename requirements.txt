@@ -5,7 +5,7 @@ langchain-community
 langchain-chroma
 langchain-text-splitters
 chromadb
-pypdf
+pymupdf4llm
 python-docx
 dashscope
 python-dotenv

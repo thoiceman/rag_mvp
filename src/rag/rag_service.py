@@ -55,9 +55,18 @@ class RagService:
         history_text = format_history(history or [], limit=rag_conf.get("history_limit", 5))
 
         store = self.store_factory.get_store(agent["vector_collection_name"])
-        retriever = store.as_retriever(search_kwargs={"k": rag_conf["search_k"]})
-        docs = retriever.invoke(question)
-        logger.info(f"检索到 {len(docs)} 条相关文档")
+        # 使用带分数的检索，以便过滤掉相关性低的文档（Chroma 默认使用 L2 距离，越小越相关）
+        docs_and_scores = store.similarity_search_with_score(question, k=rag_conf.get("search_k", 4))
+        
+        docs = []
+        max_distance = rag_conf.get("max_distance", 1.2)
+        for doc, score in docs_and_scores:
+            if score <= max_distance:
+                docs.append(doc)
+            else:
+                logger.debug(f"过滤掉不相关的文档，距离为 {score:.4f}: {doc.page_content[:30]}...")
+
+        logger.info(f"检索到 {len(docs)} 条相关文档 (已过滤距离 > {max_distance})")
         context = format_docs(docs)
 
         prompt = PromptTemplate.from_template(self.rag_template)
@@ -96,9 +105,17 @@ class RagService:
         history_text = format_history(history or [], limit=rag_conf.get("history_limit", 5))
 
         store = self.store_factory.get_store(agent["vector_collection_name"])
-        retriever = store.as_retriever(search_kwargs={"k": rag_conf["search_k"]})
-        docs = retriever.invoke(question)
-        logger.info(f"检索到 {len(docs)} 条相关文档")
+        docs_and_scores = store.similarity_search_with_score(question, k=rag_conf.get("search_k", 4))
+        
+        docs = []
+        max_distance = rag_conf.get("max_distance", 1.2)
+        for doc, score in docs_and_scores:
+            if score <= max_distance:
+                docs.append(doc)
+            else:
+                logger.debug(f"过滤掉不相关的文档，距离为 {score:.4f}: {doc.page_content[:30]}...")
+
+        logger.info(f"流式问答检索到 {len(docs)} 条相关文档 (已过滤距离 > {max_distance})")
         context = format_docs(docs)
 
         references = []

@@ -1,5 +1,5 @@
 from src.rag.document_loader import DocumentLoader
-from src.rag.splitter import get_text_splitter
+from src.rag.splitter import get_text_splitters
 from src.rag.vector_store import VectorStoreFactory
 from src.services.file_service import FileService
 from src.services.agent_service import AgentService
@@ -14,7 +14,7 @@ class IndexService:
         self.file_service = FileService()
         self.agent_service = AgentService()
         self.loader = DocumentLoader()
-        self.splitter = get_text_splitter()
+        self.md_splitter, self.rec_splitter = get_text_splitters()
         self.store_factory = VectorStoreFactory()
 
     def build_index(self, agent_id: str, file_id: str = None, progress_callback=None) -> dict:
@@ -70,7 +70,18 @@ class IndexService:
                 if progress_callback:
                     progress_callback((i + 0.3) / total_files, f"文件读取完成: {file_name}")
 
-                split_docs = self.splitter.split_documents(docs)
+                split_docs = []
+                for doc in docs:
+                    # 第一步：根据 Markdown 标题进行结构化切片
+                    md_splits = self.md_splitter.split_text(doc.page_content)
+                    # 第二步：对于结构化切片后依然过长的内容，使用字符切片器二次切分
+                    rec_splits = self.rec_splitter.split_documents(md_splits)
+                    
+                    # 合并文档原本的 Metadata 和切片过程中产生的 Metadata (如 Header)
+                    for chunk in rec_splits:
+                        chunk.metadata.update(doc.metadata)
+                        split_docs.append(chunk)
+
                 if progress_callback:
                     progress_callback((i + 0.7) / total_files, f"文件切片完成: {file_name}")
 

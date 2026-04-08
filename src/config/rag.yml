@@ -2,3 +2,5 @@ chunk_size: 500
 chunk_overlap: 80
 search_k: 4
 history_limit: 5
+# 向量检索的最大距离阈值，距离大于该值的文档会被过滤掉，避免把不相关文档作为参考资料
+max_distance: 1.2
