@@ -1,0 +1,125 @@
+from src.rag.document_loader import DocumentLoader
+from src.rag.splitter import get_text_splitter
+from src.rag.vector_store import VectorStoreFactory
+from src.services.file_service import FileService
+from src.services.agent_service import AgentService
+from src.storage.paths import resolve_file_path
+from src.utils.logger import get_logger
+
+logger = get_logger("IndexService")
+
+
+class IndexService:
+    def __init__(self):
+        self.file_service = FileService()
+        self.agent_service = AgentService()
+        self.loader = DocumentLoader()
+        self.splitter = get_text_splitter()
+        self.store_factory = VectorStoreFactory()
+
+    def build_index(self, agent_id: str, file_id: str = None, progress_callback=None) -> dict:
+        agent = self.agent_service.get_agent(agent_id)
+        if not agent:
+            logger.error(f"Agent {agent_id} 不存在")
+            raise ValueError("Agent不存在")
+
+        files = self.file_service.list_unindexed_files(agent_id)
+        
+        # 如果指定了 file_id，则仅过滤出该文件
+        if file_id:
+            files = [f for f in files if f.get("file_id") == file_id]
+
+        if not files:
+            logger.info(f"Agent {agent_id} 没有待处理的新文件")
+            return {
+                "agent_id": agent_id,
+                "indexed_files": 0,
+                "indexed_chunks": 0,
+                "status": "no_new_files",
+            }
+
+        logger.info(f"Agent {agent_id} 开始索引，共 {len(files)} 个文件")
+        all_docs = []
+        indexed_file_ids = []
+
+        store = self.store_factory.get_store(agent["vector_collection_name"])
+        total_files = len(files)
+        for i, file_meta in enumerate(files):
+            file_id = file_meta["file_id"]
+            file_name = file_meta["file_name"]
+            
+            if progress_callback:
+                progress_callback(i / total_files, f"正在处理 ({i+1}/{total_files}): {file_name}")
+            
+            # 向量化前检查并清理旧数据（增量/重试逻辑）
+            logger.info(f"检查并清理旧索引: {file_name} ({file_id})")
+            try:
+                # 直接通过 file_id 删除可能存在的旧向量，确保不重复
+                self.store_factory.delete_by_file_id(agent["vector_collection_name"], file_id)
+            except Exception as e:
+                logger.warning(f"清理旧索引失败 (可能不存在): {str(e)}")
+
+            abs_path = resolve_file_path(
+                file_meta["file_path"],
+                file_meta.get("agent_id"),
+                file_meta.get("file_name"),
+            )
+            logger.debug(f"正在加载文件: {abs_path}")
+            try:
+                docs = self.loader.load_file(str(abs_path))
+                if progress_callback:
+                    progress_callback((i + 0.3) / total_files, f"文件读取完成: {file_name}")
+
+                split_docs = self.splitter.split_documents(docs)
+                if progress_callback:
+                    progress_callback((i + 0.7) / total_files, f"文件切片完成: {file_name}")
+
+                for doc in split_docs:
+                    doc.metadata["agent_id"] = agent_id
+                    doc.metadata["file_id"] = file_id
+                    doc.metadata["file_name"] = file_name
+                    doc.metadata["md5"] = file_meta.get("md5")
+                all_docs.extend(split_docs)
+                indexed_file_ids.append(file_id)
+            except Exception as e:
+                logger.error(f"处理文件 {file_name} 失败: {str(e)}")
+
+        if not all_docs:
+            logger.warning(f"Agent {agent_id} 没有有效文本内容")
+            raise ValueError("没有可写入向量库的有效文本内容")
+
+        if progress_callback:
+            progress_callback(0.95, "正在写入向量库...")
+
+        logger.info(f"Agent {agent_id} 开始写入向量库，共 {len(all_docs)} 个切片")
+        store.add_documents(all_docs)
+
+        for file_id in indexed_file_ids:
+            self.file_service.mark_indexed(agent_id, file_id)
+
+        self.agent_service.update_agent(agent_id, knowledge_status="indexed")
+        logger.info(f"Agent {agent_id} 索引构建成功")
+
+        if progress_callback:
+            progress_callback(1.0, "索引构建完成")
+
+        return {
+            "agent_id": agent_id,
+            "indexed_files": len(indexed_file_ids),
+            "indexed_chunks": len(all_docs),
+            "status": "success",
+        }
+
+    def remove_index(self, agent_id: str, file_id: str) -> bool:
+        """从向量库中移除指定文件的索引"""
+        agent = self.agent_service.get_agent(agent_id)
+        if not agent:
+            return False
+        
+        logger.info(f"正在从向量库中移除文件索引: Agent={agent_id}, File={file_id}")
+        try:
+            self.store_factory.delete_by_file_id(agent["vector_collection_name"], file_id)
+            return True
+        except Exception as e:
+            logger.error(f"移除索引失败: {str(e)}")
+            return False

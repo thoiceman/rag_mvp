@@ -1,0 +1,4 @@
+chunk_size: 500
+chunk_overlap: 80
+search_k: 4
+history_limit: 5
