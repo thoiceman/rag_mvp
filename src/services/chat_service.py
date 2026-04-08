@@ -1,11 +1,13 @@
 from src.rag.rag_service import RagService
 from src.services.session_service import SessionService
+from src.services.memory_service import MemoryService
 
 
 class ChatService:
     def __init__(self):
         self.rag_service = RagService()
         self.session_service = SessionService()
+        self.memory_service = MemoryService()
 
     def chat(self, agent_id: str, session_id: str, question: str) -> dict:
         session = self.session_service.get_session(session_id)
@@ -18,11 +20,15 @@ class ChatService:
         # 保存当前提问
         self.session_service.append_message(session_id, "user", question)
         
-        # 发起 RAG 问答，传入历史
-        result = self.rag_service.ask(agent_id, question, history=history)
+        # 发起 RAG 问答，传入历史和 session_id 以获取长记忆
+        result = self.rag_service.ask(agent_id, question, history=history, session_id=session_id)
         
         # 保存回复
         self.session_service.append_message(session_id, "assistant", result["answer"])
+        
+        # 【触发异步记忆处理】
+        self.memory_service.process_memory_async(session_id)
+        
         return result
 
     def chat_stream(self, agent_id: str, session_id: str, question: str):
@@ -34,8 +40,8 @@ class ChatService:
         history = session.get("messages", [])
         self.session_service.append_message(session_id, "user", question)
         
-        # 调用 RAG 流式接口
-        result = self.rag_service.ask_stream(agent_id, question, history=history)
+        # 调用 RAG 流式接口，传入 session_id 以获取长记忆
+        result = self.rag_service.ask_stream(agent_id, question, history=history, session_id=session_id)
         
         # 返回一个包装生成器，以便在流结束时保存回复到历史记录
         def stream_wrapper():
@@ -46,6 +52,9 @@ class ChatService:
             
             # 流结束后，保存完整回复
             self.session_service.append_message(session_id, "assistant", full_answer)
+            
+            # 【触发异步记忆处理】
+            self.memory_service.process_memory_async(session_id)
             
         return {
             "references": result["references"],

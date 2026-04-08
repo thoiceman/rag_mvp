@@ -52,3 +52,13 @@ class SessionService:
         session["updated_at"] = now_str()
         JsonStore.save(path, session)
         return session
+
+    def update_memory_state(self, session_id: str, summary: str, summarized_index: int, vectorized_index: int) -> None:
+        """更新会话的长对话记忆状态"""
+        path = SESSIONS_DIR / f"{session_id}.json"
+        session = JsonStore.load(path, default=None)
+        if session:
+            session["summary"] = summary
+            session["summarized_index"] = summarized_index
+            session["vectorized_index"] = vectorized_index
+            JsonStore.save(path, session)
