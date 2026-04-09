@@ -59,15 +59,20 @@ export default function App() {
     await action();
   };
 
+  const ensureArray = <T,>(value: unknown): T[] => {
+    return Array.isArray(value) ? (value as T[]) : [];
+  };
+
   // 初始化获取 Agents
   const fetchAgents = async () => {
     try {
       const res = await agentApi.list();
-      setAgents(res.data);
-      if (res.data.length > 0 && !selectedAgentId) {
-        setSelectedAgentId(res.data[0].agent_id);
+      const list = ensureArray<Agent>(res.data);
+      setAgents(list);
+      if (list.length > 0 && !selectedAgentId) {
+        setSelectedAgentId(list[0].agent_id);
       }
-      return res.data;
+      return list;
     } catch (err) {
       showToast('获取 Agent 列表失败', 'error');
       return [];
@@ -77,7 +82,7 @@ export default function App() {
   const fetchFiles = async (agentId: string) => {
     try {
       const res = await fileApi.list(agentId);
-      setFiles(res.data);
+      setFiles(ensureArray<FileMeta>(res.data));
     } catch (err) {
       showToast('获取文件列表失败', 'error');
     }
@@ -86,8 +91,9 @@ export default function App() {
   const fetchSessions = async (agentId: string) => {
     try {
       const res = await chatApi.listSessions(agentId);
-      setSessions(res.data);
-      return res.data;
+      const list = ensureArray<Session>(res.data);
+      setSessions(list);
+      return list;
     } catch (err) {
       showToast('获取会话列表失败', 'error');
       return [];
@@ -400,7 +406,7 @@ export default function App() {
     }
   };
 
-  const currentAgent = agents.find(a => a.agent_id === selectedAgentId);
+  const currentAgent = ensureArray<Agent>(agents).find(a => a.agent_id === selectedAgentId);
 
   return (
     <div className="flex h-screen bg-background text-slate-900 overflow-hidden relative">
@@ -650,13 +656,13 @@ export default function App() {
               </div>
               
               <div className="py-4">
-                <div className="relative flex items-end gap-2 bg-white px-3 py-2.5 rounded-2xl border border-slate-200 shadow-lg shadow-slate-200/40 focus-within:ring-4 ring-primary/10 transition-all">
+                <div className="relative flex items-end gap-2 bg-white px-3 py-3 rounded-2xl border border-slate-200 shadow-lg shadow-slate-200/40 focus-within:ring-4 ring-primary/10 transition-all">
                   <textarea
-                    rows={1}
+                    rows={2}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder="输入问题..."
-                    className="flex-1 bg-transparent border-none focus:ring-0 p-2 text-sm resize-none placeholder:text-slate-400"
+                    className="flex-1 min-h-[72px] bg-transparent border-none focus:ring-0 p-2 text-sm resize-none placeholder:text-slate-400 leading-relaxed"
                     onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
                   />
                   <button
