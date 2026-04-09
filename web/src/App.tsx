@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, MessageSquare, Database, Settings, Plus, Trash2, Send, Paperclip, Clock, AlertCircle, CheckCircle2, Loader2, Play, Bot, UserCircle2, Sparkles } from 'lucide-react';
+import { Layout, MessageSquare, Database, Settings, Plus, Trash2, Send, Paperclip, Clock, AlertCircle, CheckCircle2, Loader2, Play, Bot, UserCircle2, Sparkles, MoreHorizontal } from 'lucide-react';
 import { agentApi, fileApi, chatApi, indexApi } from './services/api';
 import type { Agent, Message, FileMeta, Session } from './types';
 
@@ -22,7 +22,9 @@ export default function App() {
   const [indexingProgress, setIndexingProgress] = useState<number>(0);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+  const [showChatActions, setShowChatActions] = useState(false);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const chatActionsRef = useRef<HTMLDivElement | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
@@ -80,6 +82,29 @@ export default function App() {
     if (activeTab !== 'chat') return;
     messageEndRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, activeTab, sessionId]);
+
+  useEffect(() => {
+    const onPointerDownOutside = (event: MouseEvent) => {
+      if (!showChatActions) return;
+      const target = event.target as Node;
+      if (!chatActionsRef.current?.contains(target)) {
+        setShowChatActions(false);
+      }
+    };
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowChatActions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onPointerDownOutside);
+    document.addEventListener('keydown', onEscape);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDownOutside);
+      document.removeEventListener('keydown', onEscape);
+    };
+  }, [showChatActions]);
 
   // 切换 Agent 时加载文件和会话，并同步编辑状态
   useEffect(() => {
@@ -332,7 +357,7 @@ export default function App() {
           </h1>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        <div className="flex-1 overflow-y-auto app-scrollbar p-4 space-y-2">
           <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">
             Agents
           </div>
@@ -365,24 +390,38 @@ export default function App() {
           </button>
 
           {/* 历史会话列表 */}
-          {selectedAgentId && sessions.length > 0 && (
+          {selectedAgentId && (
             <div className="mt-8">
-              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2 flex items-center gap-2">
-                <Clock className="w-3 h-3" /> 历史会话
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Clock className="w-3 h-3" /> 历史会话
+                </span>
+                <button
+                  onClick={startNewSession}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 transition-colors"
+                  title="新建会话"
+                >
+                  <Plus className="w-3 h-3" />
+                  新建
+                </button>
               </div>
-              <div className="space-y-1">
-                {sessions.map(s => (
-                  <button
-                    key={s.session_id}
-                    onClick={() => handleSwitchSession(s.session_id)}
-                    className={`w-full text-left px-4 py-2 rounded-lg text-sm transition-colors truncate ${
-                      sessionId === s.session_id ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
-                    }`}
-                  >
-                    {s.title || '新会话'}
-                  </button>
-                ))}
-              </div>
+              {sessions.length > 0 ? (
+                <div className="space-y-1">
+                  {sessions.map(s => (
+                    <button
+                      key={s.session_id}
+                      onClick={() => handleSwitchSession(s.session_id)}
+                      className={`w-full text-left px-4 py-2 rounded-lg text-sm transition-colors truncate ${
+                        sessionId === s.session_id ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                      }`}
+                    >
+                      {s.title || '新会话'}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="px-2 py-3 text-xs text-slate-500">暂无历史会话</div>
+              )}
             </div>
           )}
         </div>
@@ -425,27 +464,37 @@ export default function App() {
                   <Sparkles className="w-3.5 h-3.5" />
                   智能对话
                 </div>
-                <div className="text-xs text-slate-500">
-                  共 {messages.length} 条消息
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-slate-500">共 {messages.length} 条消息</div>
+                  <div className="relative" ref={chatActionsRef}>
+                    <button
+                      onClick={() => setShowChatActions((prev) => !prev)}
+                      className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors"
+                      title="更多操作"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {showChatActions && (
+                      <div className="absolute right-0 top-9 w-36 bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 z-20">
+                        <button
+                          onClick={() => {
+                            setShowChatActions(false);
+                            if (window.confirm('确定清空当前会话消息吗？')) {
+                              setMessages([]);
+                            }
+                          }}
+                          className="w-full flex items-center gap-2 px-2.5 py-2 text-sm rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          清空历史
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex justify-center gap-3 py-3 border border-slate-200/80 rounded-2xl bg-white/80 backdrop-blur-sm shadow-sm">
-                <button 
-                  onClick={startNewSession}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200 hover:bg-slate-50 transition-colors"
-                >
-                  <Plus className="w-4 h-4" /> 新建会话
-                </button>
-                <button 
-                  onClick={() => setMessages([])}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border border-slate-200 hover:bg-slate-50 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" /> 清空历史
-                </button>
-              </div>
-
-              <div className="flex-1 min-h-0 overflow-y-auto scroll-smooth mt-4 px-4 sm:px-6 pt-6 pb-20 space-y-6 rounded-[28px] border border-slate-200/80 bg-gradient-to-b from-slate-50 via-white to-white shadow-inner">
+              <div className="flex-1 min-h-0 overflow-y-auto app-scrollbar scroll-smooth mt-2 px-4 sm:px-6 pt-6 pb-20 space-y-6 rounded-[28px] border border-slate-200/80 bg-gradient-to-b from-slate-50 via-white to-white shadow-inner">
                 {messages.length === 0 && (
                   <div className="h-full flex items-center justify-center">
                     <div className="max-w-md text-center p-8 rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -536,7 +585,7 @@ export default function App() {
           )}
 
           {activeTab === 'knowledge' && (
-            <div className="p-8 max-w-5xl mx-auto w-full space-y-8 overflow-y-auto h-full">
+            <div className="p-8 max-w-5xl mx-auto w-full space-y-8 overflow-y-auto app-scrollbar h-full">
               <div className="flex items-center justify-between">
                 <div className="flex flex-col gap-1">
                   <h3 className="text-xl font-bold">知识库资料</h3>
@@ -640,7 +689,7 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <div className="p-8 max-w-2xl mx-auto w-full space-y-8 overflow-y-auto h-full">
+            <div className="p-8 max-w-2xl mx-auto w-full space-y-8 overflow-y-auto app-scrollbar h-full">
               <div className="space-y-6">
                 <h3 className="text-xl font-bold">Agent 设置</h3>
                 
