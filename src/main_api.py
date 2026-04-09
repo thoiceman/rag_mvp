@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     yield
     # 这里可以放置关闭应用时的清理逻辑
 
-app = FastAPI(title="Custom RAG API", lifespan=lifespan)
+app = FastAPI(title="RAG MVP API", lifespan=lifespan)
 
 # 允许跨域（React 前端调用必选）
 app.add_middleware(
@@ -197,6 +197,13 @@ async def create_session(agent_id: str):
 @app.get("/sessions/{session_id}")
 async def get_session(session_id: str):
     return session_service.get_session(session_id)
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    deleted = session_service.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "success"}
 
 @app.get("/agents/{agent_id}/sessions")
 async def list_sessions(agent_id: str):

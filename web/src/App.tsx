@@ -3,6 +3,14 @@ import { Layout, MessageSquare, Database, Settings, Plus, Trash2, Send, Papercli
 import { agentApi, fileApi, chatApi, indexApi } from './services/api';
 import type { Agent, Message, FileMeta, Session } from './types';
 
+type ConfirmDialogConfig = {
+  title: string;
+  description: string;
+  confirmText?: string;
+  danger?: boolean;
+  onConfirm: () => void | Promise<void>;
+};
+
 export default function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -23,6 +31,7 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [showChatActions, setShowChatActions] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogConfig | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const chatActionsRef = useRef<HTMLDivElement | null>(null);
 
@@ -37,6 +46,17 @@ export default function App() {
     } catch {
       return '';
     }
+  };
+
+  const requestConfirm = (config: ConfirmDialogConfig) => {
+    setConfirmDialog(config);
+  };
+
+  const runConfirmedAction = async () => {
+    if (!confirmDialog) return;
+    const action = confirmDialog.onConfirm;
+    setConfirmDialog(null);
+    await action();
   };
 
   // 初始化获取 Agents
@@ -148,19 +168,26 @@ export default function App() {
   };
 
   const handleDeleteAgent = async (id: string) => {
-    if (!window.confirm('确定要删除这个 Agent 吗？这将同时删除所有相关资料和对话。')) return;
-    try {
-      await agentApi.delete(id);
-      const updatedAgents = await fetchAgents();
-      if (updatedAgents.length > 0) {
-        setSelectedAgentId(updatedAgents[0].agent_id);
-      } else {
-        setSelectedAgentId(null);
-      }
-      showToast('删除成功', 'success');
-    } catch (err) {
-      showToast('删除失败', 'error');
-    }
+    requestConfirm({
+      title: '删除 Agent',
+      description: '确定要删除这个 Agent 吗？这将同时删除所有相关资料和对话。',
+      confirmText: '确认删除',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await agentApi.delete(id);
+          const updatedAgents = await fetchAgents();
+          if (updatedAgents.length > 0) {
+            setSelectedAgentId(updatedAgents[0].agent_id);
+          } else {
+            setSelectedAgentId(null);
+          }
+          showToast('删除成功', 'success');
+        } catch (err) {
+          showToast('删除失败', 'error');
+        }
+      },
+    });
   };
 
   const handleUpdateAgent = async () => {
@@ -201,6 +228,38 @@ export default function App() {
     }
   };
 
+  const handleDeleteSession = async (targetSessionId: string) => {
+    if (!selectedAgentId) return;
+    requestConfirm({
+      title: '删除历史会话',
+      description: '确定要删除这个历史会话吗？',
+      confirmText: '确认删除',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await chatApi.deleteSession(targetSessionId);
+          const updatedSessions = await fetchSessions(selectedAgentId);
+
+          if (sessionId === targetSessionId) {
+            if (updatedSessions.length > 0) {
+              const nextSession = updatedSessions[0];
+              setSessionId(nextSession.session_id);
+              setMessages(nextSession.messages || []);
+            } else {
+              const res = await chatApi.createSession(selectedAgentId);
+              setSessionId(res.data.session_id);
+              setMessages([]);
+              await fetchSessions(selectedAgentId);
+            }
+          }
+          showToast('会话已删除', 'success');
+        } catch (err) {
+          showToast('删除会话失败', 'error');
+        }
+      },
+    });
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedAgentId) return;
@@ -221,14 +280,22 @@ export default function App() {
   };
 
   const handleDeleteFile = async (fileId: string) => {
-    if (!selectedAgentId || !window.confirm('确定要删除该文件及对应的索引吗？')) return;
-    try {
-      await fileApi.delete(selectedAgentId, fileId);
-      showToast('文件已删除', 'success');
-      fetchFiles(selectedAgentId);
-    } catch (err) {
-      showToast('删除失败', 'error');
-    }
+    if (!selectedAgentId) return;
+    requestConfirm({
+      title: '删除文件',
+      description: '确定要删除该文件及对应的索引吗？',
+      confirmText: '确认删除',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await fileApi.delete(selectedAgentId, fileId);
+          showToast('文件已删除', 'success');
+          fetchFiles(selectedAgentId);
+        } catch (err) {
+          showToast('删除失败', 'error');
+        }
+      },
+    });
   };
 
   const handleStartIndexing = async (fileId?: string) => {
@@ -353,7 +420,7 @@ export default function App() {
         <div className="p-6 border-b border-slate-800">
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Layout className="w-6 h-6 text-primary" />
-            Custom RAG
+            RAG_MVP
           </h1>
         </div>
         
@@ -408,15 +475,30 @@ export default function App() {
               {sessions.length > 0 ? (
                 <div className="space-y-1">
                   {sessions.map(s => (
-                    <button
-                      key={s.session_id}
-                      onClick={() => handleSwitchSession(s.session_id)}
-                      className={`w-full text-left px-4 py-2 rounded-lg text-sm transition-colors truncate ${
-                        sessionId === s.session_id ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
-                      }`}
-                    >
-                      {s.title || '新会话'}
-                    </button>
+                    <div key={s.session_id} className="group relative">
+                      <button
+                        onClick={() => handleSwitchSession(s.session_id)}
+                        className={`w-full text-left px-4 py-2 rounded-lg text-sm transition-colors truncate pr-10 ${
+                          sessionId === s.session_id ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-800 hover:text-slate-300'
+                        }`}
+                      >
+                        {s.title || '新会话'}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSession(s.session_id);
+                        }}
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors ${
+                          sessionId === s.session_id
+                            ? 'text-slate-300 hover:text-red-300 hover:bg-slate-700'
+                            : 'text-slate-500 hover:text-red-400 hover:bg-slate-800 opacity-0 group-hover:opacity-100'
+                        }`}
+                        title="删除会话"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -479,9 +561,15 @@ export default function App() {
                         <button
                           onClick={() => {
                             setShowChatActions(false);
-                            if (window.confirm('确定清空当前会话消息吗？')) {
-                              setMessages([]);
-                            }
+                            requestConfirm({
+                              title: '清空历史消息',
+                              description: '确定清空当前会话消息吗？',
+                              confirmText: '确认清空',
+                              danger: true,
+                              onConfirm: () => {
+                                setMessages([]);
+                              },
+                            });
                           }}
                           className="w-full flex items-center gap-2 px-2.5 py-2 text-sm rounded-lg text-red-500 hover:bg-red-50 transition-colors"
                         >
@@ -797,6 +885,39 @@ export default function App() {
                   className="flex-1 py-3 bg-primary text-white rounded-xl font-semibold hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
                 >
                   立即创建
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 backdrop-blur-sm p-4"
+          onClick={() => setConfirmDialog(null)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-slate-900">{confirmDialog.title}</h3>
+              <p className="text-sm text-slate-600 mt-2">{confirmDialog.description}</p>
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={() => setConfirmDialog(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={runConfirmedAction}
+                  className={`flex-1 py-2.5 rounded-xl text-white transition-opacity ${
+                    confirmDialog.danger ? 'bg-red-500 hover:opacity-90' : 'bg-primary hover:opacity-90'
+                  }`}
+                >
+                  {confirmDialog.confirmText || '确认'}
                 </button>
               </div>
             </div>

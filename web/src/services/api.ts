@@ -47,6 +47,7 @@ export const chatApi = {
   createSession: (agentId: string) => api.post<Session>('/sessions', null, { params: { agent_id: agentId } }),
   getSession: (sessionId: string) => api.get<Session>(`/sessions/${sessionId}`),
   listSessions: (agentId: string) => api.get<Session[]>(`/agents/${agentId}/sessions`),
+  deleteSession: (sessionId: string) => api.delete(`/sessions/${sessionId}`),
   // 注意：流式接口通常使用 fetch 或 EventSource
   chatStream: (agentId: string, sessionId: string, question: string) => {
     const formData = new FormData();

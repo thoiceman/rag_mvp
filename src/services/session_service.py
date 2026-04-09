@@ -21,6 +21,13 @@ class SessionService:
     def get_session(self, session_id: str) -> dict | None:
         return JsonStore.load(SESSIONS_DIR / f"{session_id}.json", default=None)
 
+    def delete_session(self, session_id: str) -> bool:
+        path = SESSIONS_DIR / f"{session_id}.json"
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
+
     def list_sessions(self, agent_id: str) -> list[dict]:
         sessions = []
         for path in SESSIONS_DIR.glob("*.json"):
