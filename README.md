@@ -121,3 +121,92 @@ rag_mvp/
 ├── requirements.txt       # 后端依赖列表
 └── README.md              # 项目文档
 ```
+
+## 🐳 Docker 部署（推荐）
+
+项目已提供“双容器稳态方案”：
+- `backend`：FastAPI + Uvicorn
+- `frontend`：Nginx 托管前端静态文件，并反向代理 `/api` 到后端
+
+相关文件：
+- `Dockerfile.backend`
+- `web/Dockerfile`
+- `web/nginx.conf`
+- `docker-compose.yml`
+
+### 1. 前置要求
+
+- 已安装 Docker 与 Docker Compose（推荐 Docker Desktop / Docker Engine 24+）
+- 已准备好 `.env` 文件（至少包含 `DASHSCOPE_API_KEY`）
+
+```bash
+cp .env.example .env
+# 编辑 .env 填写 DASHSCOPE_API_KEY
+```
+
+### 2. 一键构建并启动
+
+在项目根目录执行：
+
+```bash
+docker compose up -d --build
+```
+
+查看状态：
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f frontend
+```
+
+### 3. 访问方式
+
+- 本机：`http://localhost`
+- 服务器：`http://<服务器公网IP>`
+
+说明：`docker-compose.yml` 中前端映射了 `80:80`，入口是前端容器，前端通过 `/api` 自动转发到后端。
+
+### 4. 数据持久化
+
+`docker-compose.yml` 已挂载：
+
+- `./data:/app/data`
+
+会话、索引、文件等数据会持久化到宿主机 `data` 目录。
+
+### 5. 国内网络拉镜像慢（可选）
+
+可在 `.env` 中配置基础镜像地址（支持镜像代理）：
+
+```env
+PYTHON_BASE_IMAGE=python:3.11-slim
+NODE_BASE_IMAGE=node:20-alpine
+NGINX_BASE_IMAGE=nginx:1.27-alpine
+```
+
+如果使用镜像代理，可改为类似：
+
+```env
+PYTHON_BASE_IMAGE=m.daocloud.io/docker.io/library/python:3.11-slim
+NODE_BASE_IMAGE=m.daocloud.io/docker.io/library/node:20-alpine
+NGINX_BASE_IMAGE=m.daocloud.io/docker.io/library/nginx:1.27-alpine
+```
+
+改完后重建：
+
+```bash
+docker compose build --no-cache
+docker compose up -d
+```
+
+### 6. 常见排查
+
+1. 页面打不开：
+   - 检查 `docker compose ps` 是否都为 `Up`
+   - 检查服务器安全组是否放行 `80`
+2. 后端不可用：
+   - `docker compose logs -f backend`
+   - 在宿主机测试 `curl http://127.0.0.1:8000/agents`
+3. 镜像拉取失败（`load metadata for docker.io/...`）：
+   - 配置 Docker 镜像加速器，或使用上文镜像代理变量
