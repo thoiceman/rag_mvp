@@ -1,5 +1,7 @@
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import StructuredTool
+from langchain_core.messages import HumanMessage, AIMessage
+import re
 
 from src.model.factory import get_chat_model
 from src.tools.calculator_tool import calculate
@@ -34,6 +36,7 @@ class AgenticWorkflowService:
 - 输出工具参数时，必须生成合法的 JSON 格式。
 '''
         self.system_msg = system_msg
+        self._known_cities = ["北京", "上海", "杭州", "深圳"]
 
     def _build_tools(self, agent_id: str):
         def _search_knowledge_base(query: str) -> str:
@@ -63,6 +66,11 @@ class AgenticWorkflowService:
         self._last_references = []
         self._last_hit_count = 0
 
+        # 先做确定性路由，避免模型在复合意图下漏掉工具调用
+        direct_answer = self._direct_tool_route(question)
+        if direct_answer:
+            return direct_answer
+
         tools = self._build_tools(agent_id)
         agent_executor = create_react_agent(
             model=self.llm,
@@ -73,9 +81,14 @@ class AgenticWorkflowService:
         chat_history = []
         if history:
             for msg in history[-5:]:
-                chat_history.append((msg["role"], msg["content"]))
+                role = msg.get("role")
+                content = msg.get("content", "")
+                if role == "user":
+                    chat_history.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    chat_history.append(AIMessage(content=content))
 
-        chat_history.append(("user", question))
+        chat_history.append(HumanMessage(content=question))
 
         try:
             response = agent_executor.invoke({"messages": chat_history})
@@ -90,7 +103,66 @@ class AgenticWorkflowService:
                 self._last_references = rag_result.get("references", [])
                 self._last_hit_count = rag_result.get("hit_count", 0)
                 return rag_result["answer"]
+            if "'name'" in err:
+                logger.warning("触发消息格式降级：忽略历史消息重试一次")
+                try:
+                    retry_response = agent_executor.invoke({"messages": [HumanMessage(content=question)]})
+                    return retry_response["messages"][-1].content
+                except Exception as retry_e:
+                    logger.error(f"重试仍失败，降级到 RAG: {retry_e}")
+                    rag_result = self.rag_service.ask(agent_id=agent_id, question=question, history=[])
+                    self._last_references = rag_result.get("references", [])
+                    self._last_hit_count = rag_result.get("hit_count", 0)
+                    return rag_result["answer"]
             return f"任务执行出错: {err}"
+
+    def _direct_tool_route(self, question: str) -> str | None:
+        q = question.strip()
+        need_weather = any(k in q for k in ["天气", "气温", "温度", "下雨", "晴", "阴"])
+        need_calc = any(k in q for k in ["计算", "乘以", "乘", "加", "减", "除以", "*", "+", "-", "/"])
+
+        if not need_weather and not need_calc:
+            return None
+
+        parts = []
+
+        if need_weather:
+            location = next((city for city in self._known_cities if city in q), "北京")
+            try:
+                weather = get_current_weather.invoke({"location": location})
+                parts.append(f"{location}天气：{weather}")
+            except Exception as e:
+                logger.warning(f"天气工具调用失败: {e}")
+
+        if need_calc:
+            expr = self._extract_expression(q)
+            if expr:
+                try:
+                    calc_result = calculate.invoke({"expression": expr})
+                    parts.append(f"计算结果（{expr}）：{calc_result}")
+                except Exception as e:
+                    logger.warning(f"计算工具调用失败: {e}")
+
+        if parts:
+            logger.info("命中确定性路由，已直接调用工具")
+            return "\n".join(parts)
+        return None
+
+    def _extract_expression(self, text: str) -> str | None:
+        normalized = text.replace("×", "*").replace("x", "*").replace("X", "*")
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(乘以|乘|\*)\s*(\d+(?:\.\d+)?)", normalized)
+        if m:
+            return f"{m.group(1)}*{m.group(3)}"
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(加|\+)\s*(\d+(?:\.\d+)?)", normalized)
+        if m:
+            return f"{m.group(1)}+{m.group(3)}"
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(减|-)\s*(\d+(?:\.\d+)?)", normalized)
+        if m:
+            return f"{m.group(1)}-{m.group(3)}"
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(除以|/)\s*(\d+(?:\.\d+)?)", normalized)
+        if m:
+            return f"{m.group(1)}/{m.group(3)}"
+        return None
 
     def ask(self, agent_id: str, question: str, history: list = None, session_id: str = None) -> dict:
         answer = self.run_agent(agent_id, question, history)
