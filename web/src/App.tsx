@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Layout, MessageSquare, Database, Settings, Plus, Trash2, Send, Paperclip, Clock, AlertCircle, CheckCircle2, Loader2, Play } from 'lucide-react';
 import { agentApi, fileApi, chatApi, indexApi } from './services/api';
 import type { Agent, Message, FileMeta, Session } from './types';
@@ -22,6 +22,7 @@ export default function App() {
   const [indexingProgress, setIndexingProgress] = useState<number>(0);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
@@ -66,6 +67,11 @@ export default function App() {
   useEffect(() => {
     fetchAgents();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'chat') return;
+    messageEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages, activeTab, sessionId]);
 
   // 切换 Agent 时加载文件和会话，并同步编辑状态
   useEffect(() => {
@@ -375,7 +381,7 @@ export default function App() {
       </div>
 
       {/* 主工作区 */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-white">
         {/* Header */}
         <header className="h-16 border-b flex items-center justify-between px-8 bg-white/50 backdrop-blur-md sticky top-0 z-10">
           <div>
@@ -403,9 +409,9 @@ export default function App() {
         </header>
 
         {/* 内容区 */}
-        <main className="flex-1 overflow-hidden relative">
+        <main className="flex-1 min-h-0 overflow-hidden relative">
           {activeTab === 'chat' && (
-            <div className="h-full flex flex-col max-w-4xl mx-auto w-full">
+            <div className="h-full min-h-0 flex flex-col max-w-4xl mx-auto w-full">
               <div className="flex justify-center gap-4 py-4 border-b bg-white/50">
                 <button 
                   onClick={startNewSession}
@@ -421,7 +427,7 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 space-y-6">
+              <div className="flex-1 min-h-0 overflow-y-auto px-8 pt-8 pb-24 space-y-6">
                 {messages.length === 0 && (
                   <div className="h-full flex flex-col items-center justify-center text-slate-400">
                     <MessageSquare className="w-12 h-12 mb-4 opacity-20" />
@@ -460,6 +466,7 @@ export default function App() {
                     )}
                   </div>
                 ))}
+                <div ref={messageEndRef} />
               </div>
               
               <div className="p-6 bg-white border-t">
