@@ -14,6 +14,7 @@ from src.services.agent_service import AgentService
 from src.services.file_service import FileService
 from src.services.chat_service import ChatService
 from src.services.session_service import SessionService
+from src.services.agentic_workflow_service import AgenticWorkflowService
 from src.rag.index_service import IndexService
 from src.model.factory import check_api_ket_set
 from src.utils.logger import get_logger
@@ -50,6 +51,7 @@ file_service = FileService()
 chat_service = ChatService()
 session_service = SessionService()
 index_service = IndexService()
+agentic_workflow_service = AgenticWorkflowService()
 
 # --- Agent 路由 ---
 

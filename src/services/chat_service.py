@@ -1,11 +1,11 @@
-from src.rag.rag_service import RagService
+from src.services.agentic_workflow_service import AgenticWorkflowService
 from src.services.session_service import SessionService
 from src.services.memory_service import MemoryService
 
 
 class ChatService:
     def __init__(self):
-        self.rag_service = RagService()
+        self.agentic_service = AgenticWorkflowService()
         self.session_service = SessionService()
         self.memory_service = MemoryService()
 
@@ -20,8 +20,8 @@ class ChatService:
         # 保存当前提问
         self.session_service.append_message(session_id, "user", question)
         
-        # 发起 RAG 问答，传入历史和 session_id 以获取长记忆
-        result = self.rag_service.ask(agent_id, question, history=history, session_id=session_id)
+        # 发起 Agent 问答（内部集成了 RAG 等工具）
+        result = self.agentic_service.ask(agent_id, question, history=history, session_id=session_id)
         
         # 保存回复
         self.session_service.append_message(session_id, "assistant", result["answer"])
@@ -40,8 +40,8 @@ class ChatService:
         history = session.get("messages", [])
         self.session_service.append_message(session_id, "user", question)
         
-        # 调用 RAG 流式接口，传入 session_id 以获取长记忆
-        result = self.rag_service.ask_stream(agent_id, question, history=history, session_id=session_id)
+        # 调用 Agent 流式接口（模拟流）
+        result = self.agentic_service.ask_stream(agent_id, question, history=history, session_id=session_id)
         
         # 返回一个包装生成器，以便在流结束时保存回复到历史记录
         def stream_wrapper():
