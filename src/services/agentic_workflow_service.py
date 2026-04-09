@@ -38,6 +38,22 @@ class AgenticWorkflowService:
         self.system_msg = system_msg
         self._known_cities = ["北京", "上海", "杭州", "深圳"]
 
+    def _extract_cities(self, text: str) -> list[str]:
+        """按出现顺序提取问题中的城市，去重后返回。"""
+        hits: list[tuple[int, str]] = []
+        for city in self._known_cities:
+            idx = text.find(city)
+            if idx != -1:
+                hits.append((idx, city))
+        hits.sort(key=lambda x: x[0])
+        seen = set()
+        ordered = []
+        for _, city in hits:
+            if city not in seen:
+                seen.add(city)
+                ordered.append(city)
+        return ordered
+
     def _build_tools(self, agent_id: str):
         def _search_knowledge_base(query: str) -> str:
             try:
@@ -127,12 +143,13 @@ class AgenticWorkflowService:
         parts = []
 
         if need_weather:
-            location = next((city for city in self._known_cities if city in q), "北京")
-            try:
-                weather = get_current_weather.invoke({"location": location})
-                parts.append(f"{location}天气：{weather}")
-            except Exception as e:
-                logger.warning(f"天气工具调用失败: {e}")
+            locations = self._extract_cities(q) or ["北京"]
+            for location in locations:
+                try:
+                    weather = get_current_weather.invoke({"location": location})
+                    parts.append(f"{location}天气：{weather}")
+                except Exception as e:
+                    logger.warning(f"天气工具调用失败({location}): {e}")
 
         if need_calc:
             expr = self._extract_expression(q)
