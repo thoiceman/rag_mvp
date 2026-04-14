@@ -1,6 +1,6 @@
 from langchain_chroma import Chroma
-from src.model.factory import get_embedding_model
-from src.storage.paths import VECTOR_DB_DIR
+from app.models.factory import get_embedding_model
+from app.storage.paths import VECTOR_DB_DIR
 
 
 class VectorStoreFactory:

@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from logging.handlers import TimedRotatingFileHandler
-from src.storage.paths import DATA_DIR
+from app.storage.paths import DATA_DIR
 
 
 def get_logger(name: str = "custom_rag_platform") -> logging.Logger:

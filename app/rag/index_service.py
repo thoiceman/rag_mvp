@@ -1,10 +1,10 @@
-from src.rag.document_loader import DocumentLoader
-from src.rag.splitter import get_text_splitters
-from src.rag.vector_store import VectorStoreFactory
-from src.services.file_service import FileService
-from src.services.agent_service import AgentService
-from src.storage.paths import resolve_file_path
-from src.utils.logger import get_logger
+from app.rag.document_loader import DocumentLoader
+from app.rag.splitter import get_text_splitters
+from app.rag.vector_store import VectorStoreFactory
+from app.services.file_service import FileService
+from app.services.agent_service import AgentService
+from app.storage.paths import resolve_file_path
+from app.utils.logger import get_logger
 
 logger = get_logger("IndexService")
 
@@ -17,13 +17,13 @@ class IndexService:
         self.md_splitter, self.rec_splitter = get_text_splitters()
         self.store_factory = VectorStoreFactory()
 
-    def build_index(self, agent_id: str, file_id: str = None, progress_callback=None) -> dict:
-        agent = self.agent_service.get_agent(agent_id)
+    def build_index(self, db, agent_id: str, file_id: str = None, progress_callback=None) -> dict:
+        agent = self.agent_service.get_agent(db, agent_id)
         if not agent:
             logger.error(f"Agent {agent_id} 不存在")
             raise ValueError("Agent不存在")
 
-        files = self.file_service.list_unindexed_files(agent_id)
+        files = self.file_service.list_unindexed_files(db, agent_id)
         
         # 如果指定了 file_id，则仅过滤出该文件
         if file_id:
@@ -106,9 +106,9 @@ class IndexService:
         store.add_documents(all_docs)
 
         for file_id in indexed_file_ids:
-            self.file_service.mark_indexed(agent_id, file_id)
+            self.file_service.mark_indexed(db, agent_id, file_id)
 
-        self.agent_service.update_agent(agent_id, knowledge_status="indexed")
+        self.agent_service.update_agent(db, agent_id, knowledge_status="indexed")
         logger.info(f"Agent {agent_id} 索引构建成功")
 
         if progress_callback:
@@ -121,9 +121,9 @@ class IndexService:
             "status": "success",
         }
 
-    def remove_index(self, agent_id: str, file_id: str) -> bool:
+    def remove_index(self, db, agent_id: str, file_id: str) -> bool:
         """从向量库中移除指定文件的索引"""
-        agent = self.agent_service.get_agent(agent_id)
+        agent = self.agent_service.get_agent(db, agent_id)
         if not agent:
             return False
         

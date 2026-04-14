@@ -1,212 +1,104 @@
 # RAG_MVP
 
-一个模块化、可扩展的检索增强生成（RAG）平台，基于 **React + FastAPI** 的前后端分离架构，核心能力由 LangChain 1.x、Chroma 和 DashScope 驱动，旨在提供一个将检索（RAG）与推理（Agent）相结合的统一系统。
+一个模块化、可扩展的检索增强生成（RAG）平台，基于 **React + FastAPI** 的前后端分离架构。项目已按照 FastAPI 生产级标准重构，核心能力由 LangChain 1.x、LangGraph、Chroma 和 DashScope 驱动，旨在提供一个将检索（RAG）与推理（Agent）相结合的统一系统。
 
 ## 🎯 项目概述
 
-RAG_MVP 是一个基于 LangChain 和 RAG（检索增强生成）技术构建的最小可行性产品（MVP）。它展示了如何将知识库检索与大模型推理相结合，构建一个具备领域知识的智能问答助手。
+RAG_MVP 展示了如何构建一个具备领域知识的智能问答助手。项目通过 **Agentic Workflow** 实现了工具调用（Tool Calling）与知识库检索的深度融合，并引入了**长对话记忆（Memory Service）**与**自动摘要**功能。
 
-本项目的核心目标是：提供一个轻量、易读、可运行的参考实现，帮助开发者快速理解 RAG 的核心链路（包括文档加载、文本切分、向量化、检索和 Prompt 组装），以及如何实现多个智能 Agent 之间的知识库隔离与独立配置。
+本项目的核心目标是：提供一个标准、易读、可扩展的 FastAPI 参考实现，展示如何通过 **Repository 模式** 与 **依赖注入** 实现复杂的 RAG 业务链路。
 
 ## 🏗️ 架构设计
 
-本项目采用前后端分离架构，主要包含以下层级：
+本项目采用标准 FastAPI 生产级目录结构，主要包含以下层级：
 
-1. **前端交互层（React + Vite）**
-   - 基于 React 19 和 Tailwind CSS 构建的现代 Web UI。
-   - 负责 Agent 创建与管理、文件上传、手动触发向量化、会话管理以及流式问答聊天（展示参考资料）。
-2. **API 接入层（FastAPI）**
-   - 提供 RESTful API 和流式响应（Server-Sent Events）接口供前端调用。
-3. **应用服务层（Service）**
-   - 负责业务逻辑封装，如 Agent 管理 (`AgentService`)、文件管理 (`FileService`)、向量化流程 (`IndexService`)、检索问答调度 (`ChatService`) 以及会话状态管理 (`SessionService`)。
-4. **模型适配层（Model）**
-   - 通过统一工厂类对接大语言模型和向量模型，具备良好的扩展性。
-5. **知识库层（RAG）**
-   - 负责多种格式文档（TXT, PDF, DOCX 等）的加载、文本切分、基于 DashScope 的 Embedding 计算、以及基于 Chroma 向量库的存储与检索。
-6. **数据持久化层（Storage）**
-   - 负责 Agent 配置、Prompt、文件元数据、向量数据库及会话记录的本地保存（采用 JSON + 本地目录管理，方便快速迭代）。
+1.  **API 接入层 (app/api)**
+    - 采用版本化路由 (`v1`)，将不同领域（Agents, Files, Chat, Sessions）拆分为独立的端点模块。
+2.  **业务逻辑层 (app/services)**
+    - 核心业务中枢，处理 Agent 编排、流式对话控制、异步记忆处理等复杂逻辑。
+3.  **仓储层 (app/repositories)**
+    - 引入 Repository 模式，封装底层 **SQLModel** CRUD 操作，实现业务与数据库的解耦。
+4.  **数据验证层 (app/schemas)**
+    - 统一管理 Pydantic 模型，负责 API 的入参验证与出参格式化。
+5.  **核心配置层 (app/core)**
+    - 集中管理数据库连接（同步 Session 池）、应用生命周期（Lifespan）及全局设置。
+6.  **数据模型层 (app/models)**
+    - 定义数据库实体模型及大模型初始化工厂。
+7.  **知识库与工具 (app/rag & app/tools)**
+    - 封装 RAG 核心链路（切分、向量化、检索）及 Agent 可用的扩展工具（计算器、天气等）。
 
 ## 🛠️ 技术选型
 
 ### 前端技术栈 (web/)
-- **框架**：React 19, TypeScript
-- **构建工具**：Vite
+- **框架**：React 19, TypeScript, Vite
 - **样式**：Tailwind CSS
-- **请求库**：Axios
-- **图标**：Lucide React
+- **请求库**：Axios, SSE (Server-Sent Events)
 
-### 后端技术栈 (src/)
+### 后端技术栈 (app/)
 - **核心框架**：Python 3.11, FastAPI, Uvicorn
-- **大模型框架**：LangChain 1.x
-- **向量数据库**：Chroma (`chromadb`, `langchain-chroma`)
-- **文档处理**：`langchain-text-splitters`, `pypdf`, `python-docx`
-- **大模型层**：DashScope (阿里通义千问)
-  - Embedding：`DashScopeEmbeddings`
-  - Chat：`ChatTongyi`
+- **ORM**：SQLModel (基于 SQLAlchemy)
+- **Agent 框架**：LangChain 1.x, LangGraph
+- **向量数据库**：Chroma
+- **大模型层**：DashScope (通义千问)
 
 ## 🖥️ 核心功能模块
 
-1. **Agent 管理**
-   - 创建自定义 Agent，设定领域、描述及系统 Prompt。
-   - 每个 Agent 的配置、知识库、对话会话相互隔离。
-2. **知识库管理 (RAG)**
-   - 支持 TXT、PDF 等格式的知识库文件上传。
-   - **手动构建索引**：文件上传与自动向量化解耦，给予用户充分的控制权。随时可查看并管理已向量化的文档。
-3. **智能聊天体验**
-   - 支持多会话（Session）管理。
-   - 采用流式输出（StreamingResponse），提供丝滑的打字机体验。
-   - 问答结果附带**参考资料溯源**，增强大模型回答的可解释性和可信度。
+1.  **标准 FastAPI 架构**：代码结构清晰，易于维护和二次开发。
+2.  **Agent 智能推理**：基于 LangGraph 实现，具备自动判断是否需要调用知识库、计算器或天气工具的能力。
+3.  **流式溯源问答**：支持 Server-Sent Events 流式输出，且回答实时附带**参考资料来源**。
+4.  **长对话记忆系统**：
+    - **向量化记忆**：自动将历史对话向量化并存储，实现跨时空的上下文检索。
+    - **自动滚动摘要**：定期对长对话进行摘要压缩，节省 Token 并保持核心语境。
+5.  **手动索引控制**：支持文件上传与向量化解耦，用户可自主决定何时构建知识库索引。
 
 ## 🚀 快速开始
 
-### 1. 克隆项目与环境准备
-```bash
-git clone <repository-url>
-cd rag_mvp
-```
-
-### 2. 配置环境变量
-在项目根目录下复制一份环境变量模板并配置您的 DashScope API Key：
+### 1. 配置环境变量
+在根目录下配置 `.env` 文件：
 ```bash
 cp .env.example .env
 # 编辑 .env 文件，填入 DASHSCOPE_API_KEY
 ```
 
-### 3. 启动后端 (FastAPI)
-推荐使用 Conda 管理虚拟环境：
+### 2. 启动后端 (Conda)
 ```bash
-# 创建并激活 Conda 虚拟环境 (推荐 Python 3.11)
-conda create -n rag_mvp python=3.11 -y
+conda env update -n rag_mvp -f environment.yml
 conda activate rag_mvp
 
-# 安装后端依赖
-pip install -r requirements.txt
-
-# 启动 FastAPI 服务 (默认运行在 http://localhost:8000)
-python -m src.main_api 或者 python -m uvicorn src.main_api:app --reload --host 0.0.0.0 --port 8000
+# 启动服务
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 4. 启动前端 (React)
-打开一个新的终端窗口：
+### 3. 启动前端
 ```bash
 cd web
-
-# 安装前端依赖
 npm install
-
-# 启动开发服务器 (默认运行在 http://localhost:5173)
 npm run dev
 ```
-
-在浏览器中访问 `http://localhost:5173` 即可体验平台。
 
 ## 🧩 项目结构说明
 
 ```text
 rag_mvp/
-├── data/                  # 本地数据存储 (Agent配置、日志、会话、文件、Chroma向量库)
-├── src/                   # 后端 Python 源码
-│   ├── config/            # 配置文件
-│   ├── model/             # 模型初始化工厂
-│   ├── prompts/           # 预设系统提示词
-│   ├── rag/               # RAG核心逻辑 (文档加载、切分、向量化、检索)
+├── app/                   # 后端 Python 源码 (FastAPI)
+│   ├── api/               # API 路由层 (v1/endpoints)
+│   ├── core/              # 核心配置 (数据库、配置加载)
+│   ├── models/            # 数据库模型与模型工厂
+│   ├── schemas/           # Pydantic 数据验证模型
+│   ├── repositories/      # 仓储层 (CRUD 操作)
 │   ├── services/          # 业务逻辑服务层
-│   ├── storage/           # 本地存储操作封装
-│   ├── utils/             # 工具类 (日志、ID生成等)
-│   └── main_api.py        # FastAPI 应用入口
+│   ├── rag/               # RAG 核心逻辑
+│   ├── storage/           # 本地持久化抽象
+│   └── main.py            # 应用唯一入口
 ├── web/                   # 前端 React 源码
-│   ├── src/               # 前端组件、API调用与样式
-│   ├── package.json       # 前端依赖配置
-│   └── vite.config.ts     # Vite 构建配置
-├── requirements.txt       # 后端依赖列表
-└── README.md              # 项目文档
+├── data/                  # 本地持久化数据 (DB, 向量库, 上传文件)
+├── docker-compose.yml     # Docker 一键部署配置
+└── requirements.txt       # 后端依赖列表
 ```
 
-## 🐳 Docker 部署（推荐）
-
-项目已提供“双容器稳态方案”：
-- `backend`：FastAPI + Uvicorn
-- `frontend`：Nginx 托管前端静态文件，并反向代理 `/api` 到后端
-
-相关文件：
-- `Dockerfile.backend`
-- `web/Dockerfile`
-- `web/nginx.conf`
-- `docker-compose.yml`
-
-### 1. 前置要求
-
-- 已安装 Docker 与 Docker Compose（推荐 Docker Desktop / Docker Engine 24+）
-- 已准备好 `.env` 文件（至少包含 `DASHSCOPE_API_KEY`）
-
-```bash
-cp .env.example .env
-# 编辑 .env 填写 DASHSCOPE_API_KEY
-```
-
-### 2. 一键构建并启动
-
-在项目根目录执行：
+## 🐳 Docker 部署
 
 ```bash
 docker compose up -d --build
 ```
-
-查看状态：
-
-```bash
-docker compose ps
-docker compose logs -f backend
-docker compose logs -f frontend
-```
-
-### 3. 访问方式
-
-- 本机：`http://localhost`
-- 服务器：`http://<服务器公网IP>`
-
-说明：`docker-compose.yml` 中前端映射了 `80:80`，入口是前端容器，前端通过 `/api` 自动转发到后端。
-
-### 4. 数据持久化
-
-`docker-compose.yml` 已挂载：
-
-- `./data:/app/data`
-
-会话、索引、文件等数据会持久化到宿主机 `data` 目录。
-
-### 5. 国内网络拉镜像慢（可选）
-
-可在 `.env` 中配置基础镜像地址（支持镜像代理）：
-
-```env
-PYTHON_BASE_IMAGE=python:3.11-slim
-NODE_BASE_IMAGE=node:20-alpine
-NGINX_BASE_IMAGE=nginx:1.27-alpine
-```
-
-如果使用镜像代理，可改为类似：
-
-```env
-PYTHON_BASE_IMAGE=m.daocloud.io/docker.io/library/python:3.11-slim
-NODE_BASE_IMAGE=m.daocloud.io/docker.io/library/node:20-alpine
-NGINX_BASE_IMAGE=m.daocloud.io/docker.io/library/nginx:1.27-alpine
-```
-
-改完后重建：
-
-```bash
-docker compose build --no-cache
-docker compose up -d
-```
-
-### 6. 常见排查
-
-1. 页面打不开：
-   - 检查 `docker compose ps` 是否都为 `Up`
-   - 检查服务器安全组是否放行 `80`
-2. 后端不可用：
-   - `docker compose logs -f backend`
-   - 在宿主机测试 `curl http://127.0.0.1:8000/agents`
-3. 镜像拉取失败（`load metadata for docker.io/...`）：
-   - 配置 Docker 镜像加速器，或使用上文镜像代理变量
+数据将持久化在宿主机的 `./data` 目录下。访问 `http://localhost` 即可使用。

@@ -1,6 +1,6 @@
 import os
 from sqlmodel import SQLModel, create_engine, Session as DbSession
-from src.storage.paths import BASE_DIR
+from app.storage.paths import BASE_DIR
 
 # 数据库文件保存在 data 目录下
 DB_FILE = BASE_DIR / "data" / "rag_mvp.db"
@@ -11,7 +11,9 @@ sqlite_url = f"sqlite:///{DB_FILE}"
 engine = create_engine(sqlite_url, echo=False, connect_args={"check_same_thread": False})
 
 def init_db():
-    from src.model.db_models import Agent, FileMeta, Session
+    from app.models.agent import Agent
+    from app.models.file_meta import FileMeta
+    from app.models.session import Session
     SQLModel.metadata.create_all(engine)
 
 def get_session():

@@ -1,11 +1,11 @@
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from src.model.factory import get_chat_model
-from src.rag.vector_store import VectorStoreFactory
-from src.services.agent_service import AgentService
-from src.storage.paths import PROMPTS_DIR, CONFIG_DIR
-from src.utils.config_loader import ConfigLoader
-from src.utils.logger import get_logger
+from app.models.factory import get_chat_model
+from app.rag.vector_store import VectorStoreFactory
+from app.services.agent_service import AgentService
+from app.storage.paths import PROMPTS_DIR, CONFIG_DIR
+from app.utils.config_loader import ConfigLoader
+from app.utils.logger import get_logger
 
 logger = get_logger("RagService")
 
@@ -38,7 +38,8 @@ def format_history(messages: list[dict], limit: int = 5) -> str:
 
 class RagService:
     def __init__(self):
-        self.model = get_chat_model()
+        # 强制关闭 RAG 内部模型的流式输出，防止其事件冒泡导致 Agent 回复重复
+        self.model = get_chat_model(streaming=False)
         self.agent_service = AgentService()
         self.store_factory = VectorStoreFactory()
         self.rag_template = (PROMPTS_DIR / "rag_qa_prompt.txt").read_text(encoding="utf-8")
@@ -64,8 +65,8 @@ class RagService:
             logger.error(f"查询重写失败，降级使用原问题: {e}")
             return question
 
-    def ask(self, agent_id: str, question: str, history: list[dict] = None, session_id: str = None) -> dict:
-        agent = self.agent_service.get_agent(agent_id)
+    def ask(self, db, agent_id: str, question: str, history: list[dict] = None, session_id: str = None) -> dict:
+        agent = self.agent_service.get_agent(db, agent_id)
         if not agent:
             logger.error(f"Agent {agent_id} 不存在")
             raise ValueError("Agent不存在")
@@ -100,8 +101,8 @@ class RagService:
         
         if session_id:
             # 引入 SessionService，避免循环引用可在方法内引入
-            from src.services.session_service import SessionService
-            session = SessionService().get_session(session_id)
+            from app.services.session_service import SessionService
+            session = SessionService().get_session(db, session_id)
             if session:
                 summary = session.get("summary", "暂无摘要")
                 messages = session.get("messages", [])
@@ -151,9 +152,9 @@ class RagService:
             "hit_count": len(docs),
         }
 
-    def ask_stream(self, agent_id: str, question: str, history: list[dict] = None, session_id: str = None):
+    def ask_stream(self, db, agent_id: str, question: str, history: list[dict] = None, session_id: str = None):
         """流式问答，返回 (references, stream_generator)"""
-        agent = self.agent_service.get_agent(agent_id)
+        agent = self.agent_service.get_agent(db, agent_id)
         if not agent:
             logger.error(f"Agent {agent_id} 不存在")
             raise ValueError("Agent不存在")
@@ -191,8 +192,8 @@ class RagService:
         first_question = "暂无"
 
         if session_id:
-            from src.services.session_service import SessionService
-            session = SessionService().get_session(session_id)
+            from app.services.session_service import SessionService
+            session = SessionService().get_session(db, session_id)
             if session:
                 summary = session.get("summary", "暂无摘要")
                 messages = session.get("messages", [])
