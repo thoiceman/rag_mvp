@@ -11,7 +11,7 @@ export const agentApi = {
   list: () => api.get<Agent[]>('/agents'),
   get: (id: string) => api.get<Agent>(`/agents/${id}`),
   create: (name: string, system_prompt: string, description: string, category: string = 'custom') => 
-    api.post<Agent>('/agents', null, { params: { name, system_prompt, description, category } }),
+    api.post<Agent>('/agents', { name, system_prompt, description, category }),
   update: (id: string, data: Partial<Agent>) => api.patch<Agent>(`/agents/${id}`, data),
   delete: (id: string) => api.delete(`/agents/${id}`),
 };

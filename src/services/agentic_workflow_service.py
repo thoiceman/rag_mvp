@@ -132,6 +132,74 @@ class AgenticWorkflowService:
                     return rag_result["answer"]
             return f"任务执行出错: {err}"
 
+    async def run_agent_stream(self, agent_id: str, question: str, history: list = None):
+        """
+        运行完整的 Agentic Workflow 并返回异步流
+        """
+        logger.info(f"启动 Agentic Workflow 流式解决问题: {question}")
+        self._last_references = []
+        self._last_hit_count = 0
+
+        # 先做确定性路由，避免模型在复合意图下漏掉工具调用
+        direct_answer = self._direct_tool_route(question)
+        if direct_answer:
+            # 如果是确定性路由，直接生成一个模拟的异步流
+            async def direct_stream():
+                chunk_size = 2
+                for i in range(0, len(direct_answer), chunk_size):
+                    yield direct_answer[i:i+chunk_size]
+            return direct_stream()
+
+        tools = self._build_tools(agent_id)
+        agent_executor = create_react_agent(
+            model=self.llm,
+            tools=tools,
+            prompt=self.system_msg,
+        )
+
+        chat_history = []
+        if history:
+            for msg in history[-5:]:
+                role = msg.get("role")
+                content = msg.get("content", "")
+                if role == "user":
+                    chat_history.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    chat_history.append(AIMessage(content=content))
+
+        chat_history.append(HumanMessage(content=question))
+
+        async def generate_stream():
+            try:
+                # 使用 astream_events 获取底层的流式事件
+                # version="v2" 是 LangChain 推荐的事件版本
+                async for event in agent_executor.astream_events(
+                    {"messages": chat_history}, 
+                    version="v2"
+                ):
+                    # 过滤大模型的文本生成事件
+                    if event["event"] == "on_chat_model_stream":
+                        chunk = event["data"]["chunk"].content
+                        if chunk:
+                            yield chunk
+                            
+            except Exception as e:
+                err = str(e)
+                logger.error(f"Agentic Workflow 流式执行失败: {e}")
+                # 降级处理：退回到 RAG
+                yield f"\n[系统提示：Agent 执行异常，降级为普通问答 ({err})]\n"
+                
+                try:
+                    # 获取 RAG 结果（此处如果是异步，需要改用 aask）
+                    rag_result = self.rag_service.ask(agent_id=agent_id, question=question, history=history or [])
+                    self._last_references = rag_result.get("references", [])
+                    self._last_hit_count = rag_result.get("hit_count", 0)
+                    yield rag_result["answer"]
+                except Exception as rag_err:
+                    yield f"降级问答也失败了: {str(rag_err)}"
+
+        return generate_stream()
+
     def _direct_tool_route(self, question: str) -> str | None:
         q = question.strip()
         need_weather = any(k in q for k in ["天气", "气温", "温度", "下雨", "晴", "阴"])
@@ -189,19 +257,13 @@ class AgenticWorkflowService:
             "hit_count": self._last_hit_count,
         }
 
-    def ask_stream(self, agent_id: str, question: str, history: list = None, session_id: str = None) -> dict:
-        answer = self.run_agent(agent_id, question, history)
-
-        def stream_generator():
-            import time
-            chunk_size = 2
-            for i in range(0, len(answer), chunk_size):
-                yield answer[i:i+chunk_size]
-                time.sleep(0.01)
+    async def ask_stream(self, agent_id: str, question: str, history: list = None, session_id: str = None) -> dict:
+        stream_generator = await self.run_agent_stream(agent_id, question, history)
 
         return {
-            "answer": answer,
+            # 因为流是异步生成的，所以这里无法提前知道完整的 answer
+            "answer": "",
             "references": self._last_references,
             "hit_count": self._last_hit_count,
-            "stream": stream_generator()
+            "stream": stream_generator
         }

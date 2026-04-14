@@ -9,6 +9,7 @@ load_dotenv()
 
 from typing import List, Optional
 import uvicorn
+from pydantic import BaseModel
 
 from src.services.agent_service import AgentService
 from src.services.file_service import FileService
@@ -26,6 +27,10 @@ logger = get_logger("API")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        from src.storage.database import init_db
+        init_db()
+        logger.info("API 启动：数据库初始化成功")
+        
         check_api_ket_set()
         logger.info("API 启动：API Key 校验通过")
     except EnvironmentError as e:
@@ -55,6 +60,20 @@ agentic_workflow_service = AgenticWorkflowService()
 
 # --- Agent 路由 ---
 
+class AgentCreateRequest(BaseModel):
+    name: str
+    system_prompt: str
+    category: str = "custom"
+    description: str = ""
+
+class AgentUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    system_prompt: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    knowledge_status: Optional[str] = None
+    vector_collection_name: Optional[str] = None
+
 @app.get("/agents")
 async def list_agents():
     return agent_service.list_agents()
@@ -67,13 +86,14 @@ async def get_agent(agent_id: str):
     return agent
 
 @app.post("/agents")
-async def create_agent(name: str, system_prompt: str, category: str = "custom", description: str = ""):
-    return agent_service.create_agent(name, category, description, system_prompt)
+async def create_agent(req: AgentCreateRequest):
+    return agent_service.create_agent(req.name, req.category, req.description, req.system_prompt)
 
 @app.patch("/agents/{agent_id}")
-async def update_agent(agent_id: str, data: dict):
+async def update_agent(agent_id: str, req: AgentUpdateRequest):
     try:
-        return agent_service.update_agent(agent_id, **data)
+        update_data = req.model_dump(exclude_unset=True)
+        return agent_service.update_agent(agent_id, **update_data)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -90,36 +110,8 @@ async def list_files(agent_id: str):
 
 @app.post("/agents/{agent_id}/files")
 async def upload_file(agent_id: str, file: UploadFile = File(...)):
-    # 模拟 Streamlit 的上传文件对象
-    class UploadedFileProxy:
-        def __init__(self, upload_file: UploadFile):
-            self.name = upload_file.filename
-            self._content = None
-        
-        def getbuffer(self):
-            class BufferProxy:
-                def __init__(self, content): self.content = content
-                def tobytes(self): return self.content
-            if self._content is None:
-                import asyncio
-                # 注意：这里在异步环境中使用同步读取可能需要处理
-                # 但由于 save_uploaded_file 内部是同步写，这里简单处理
-                return BufferProxy(None) 
-            return BufferProxy(self._content)
-
-    # 实际开发中建议重构 file_service 接受 bytes，这里先做适配
     content = await file.read()
-    class SimpleProxy:
-        def __init__(self, name, content):
-            self.name = name
-            self.content = content
-        def getbuffer(self):
-            class B:
-                def __init__(self, c): self.c = c
-                def tobytes(self): return self.c
-            return B(self.content)
-
-    return file_service.save_uploaded_file(agent_id, SimpleProxy(file.filename, content))
+    return file_service.save_uploaded_file(agent_id, file.filename, content)
 
 @app.delete("/agents/{agent_id}/files/{file_id}")
 async def delete_file(agent_id: str, file_id: str):
@@ -133,34 +125,41 @@ async def delete_file(agent_id: str, file_id: str):
 
 @app.post("/agents/{agent_id}/index")
 async def build_index(agent_id: str, file_id: Optional[str] = None):
-    import queue
-    import threading
-    import json
-    q = queue.Queue()
-
-    def progress_cb(percent, msg):
-        q.put({"type": "progress", "percent": percent * 100, "message": msg})
-
-    def worker():
-        try:
-            res = index_service.build_index(agent_id, file_id=file_id, progress_callback=progress_cb)
-            q.put({"type": "result", "data": res})
-        except Exception as e:
-            q.put({"type": "error", "message": str(e)})
-        finally:
-            q.put(None)
-
-    threading.Thread(target=worker).start()
-
     import asyncio
+    import json
+    
+    # 使用原生的 asyncio.Queue 替代 queue.Queue
+    q = asyncio.Queue()
+
+    # 回调中不直接阻塞，而是用 put_nowait 推送数据
+    def progress_cb(percent, msg):
+        try:
+            q.put_nowait({"type": "progress", "percent": percent * 100, "message": msg})
+        except asyncio.QueueFull:
+            pass
+
+    async def worker():
+        try:
+            # 由于 build_index 目前可能是同步阻塞代码（比如文件 I/O、向量写入），
+            # 为了防止它阻塞整个 FastAPI 事件循环，我们将其放到线程池中执行
+            loop = asyncio.get_running_loop()
+            res = await loop.run_in_executor(
+                None,
+                lambda: index_service.build_index(agent_id, file_id=file_id, progress_callback=progress_cb)
+            )
+            await q.put({"type": "result", "data": res})
+        except Exception as e:
+            await q.put({"type": "error", "message": str(e)})
+        finally:
+            await q.put(None)
+
+    # 启动后台任务
+    asyncio.create_task(worker())
+
     async def event_generator():
         while True:
-            try:
-                # 非阻塞获取，防止阻塞主事件循环
-                item = q.get_nowait()
-            except queue.Empty:
-                await asyncio.sleep(0.1)
-                continue
+            # 原生的 await get 会自动挂起，不消耗 CPU
+            item = await q.get()
                 
             if item is None:
                 break
@@ -173,9 +172,9 @@ async def build_index(agent_id: str, file_id: Optional[str] = None):
 
 @app.post("/chat/stream")
 async def chat_stream(agent_id: str = Form(...), session_id: str = Form(...), question: str = Form(...)):
-    result = chat_service.chat_stream(agent_id, session_id, question)
+    result = await chat_service.chat_stream(agent_id, session_id, question)
     
-    def event_generator():
+    async def event_generator():
         # 先发送元数据（参考资料）
         import json
         yield json.dumps({
@@ -185,7 +184,7 @@ async def chat_stream(agent_id: str = Form(...), session_id: str = Form(...), qu
         }) + "\n"
         
         # 再发送流式文本
-        for chunk in result["stream"]:
+        async for chunk in result["stream"]:
             yield json.dumps({"type": "content", "content": chunk}) + "\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -31,7 +31,7 @@ class ChatService:
         
         return result
 
-    def chat_stream(self, agent_id: str, session_id: str, question: str):
+    async def chat_stream(self, agent_id: str, session_id: str, question: str):
         """流式聊天"""
         session = self.session_service.get_session(session_id)
         if not session:
@@ -40,13 +40,13 @@ class ChatService:
         history = session.get("messages", [])
         self.session_service.append_message(session_id, "user", question)
         
-        # 调用 Agent 流式接口（模拟流）
-        result = self.agentic_service.ask_stream(agent_id, question, history=history, session_id=session_id)
+        # 调用 Agent 流式接口（真实异步流）
+        result = await self.agentic_service.ask_stream(agent_id, question, history=history, session_id=session_id)
         
-        # 返回一个包装生成器，以便在流结束时保存回复到历史记录
-        def stream_wrapper():
+        # 返回一个包装异步生成器，以便在流结束时保存回复到历史记录
+        async def stream_wrapper():
             full_answer = ""
-            for chunk in result["stream"]:
+            async for chunk in result["stream"]:
                 full_answer += chunk
                 yield chunk
             

@@ -1,0 +1,24 @@
+name: rag_mvp
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - pyyaml
+      - langchain
+      - langchain-core
+      - langchain-community
+      - langchain-chroma
+      - langchain-text-splitters
+      - chromadb
+      - pymupdf4llm
+      - python-docx
+      - dashscope
+      - python-dotenv
+      - fastapi
+      - uvicorn
+      - python-multipart
+      - langgraph
+      - sqlmodel
