@@ -10,13 +10,14 @@ AGENTS_DIR = DATA_DIR / "agents"
 UPLOADS_DIR = DATA_DIR / "uploads"
 SESSIONS_DIR = DATA_DIR / "sessions"
 VECTOR_DB_DIR = DATA_DIR / "vector_db"
+PARENT_DOCS_DIR = DATA_DIR / "parent_docs"
 
 PROMPTS_DIR = SRC_DIR / "prompts"
 CONFIG_DIR = SRC_DIR / "config"
 
 
 def ensure_dirs() -> None:
-    for path in [DATA_DIR, AGENTS_DIR, UPLOADS_DIR, SESSIONS_DIR, VECTOR_DB_DIR]:
+    for path in [DATA_DIR, AGENTS_DIR, UPLOADS_DIR, SESSIONS_DIR, VECTOR_DB_DIR, PARENT_DOCS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 

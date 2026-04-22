@@ -1,12 +1,17 @@
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_classic.retrievers import ParentDocumentRetriever
+from langchain_classic.storage import LocalFileStore, create_kv_docstore
 from app.rag.document_loader import DocumentLoader
 from app.rag.splitter import get_text_splitters
 from app.rag.vector_store import VectorStoreFactory
 from app.services.file_service import FileService
 from app.services.agent_service import AgentService
-from app.storage.paths import resolve_file_path
+from app.storage.paths import resolve_file_path, PARENT_DOCS_DIR
+from app.core.config import get_settings
 from app.utils.logger import get_logger
 
 logger = get_logger("IndexService")
+settings = get_settings()
 
 
 class IndexService:
@@ -44,6 +49,8 @@ class IndexService:
 
         store = self.store_factory.get_store(agent["vector_collection_name"])
         total_files = len(files)
+        parent_retriever_enabled = settings.PARENT_RETRIEVER_ENABLED
+        
         for i, file_meta in enumerate(files):
             file_id = file_meta["file_id"]
             file_name = file_meta["file_name"]
@@ -70,40 +77,48 @@ class IndexService:
                 if progress_callback:
                     progress_callback((i + 0.3) / total_files, f"文件读取完成: {file_name}")
 
-                split_docs = []
                 for doc in docs:
-                    # 第一步：根据 Markdown 标题进行结构化切片
-                    md_splits = self.md_splitter.split_text(doc.page_content)
-                    # 第二步：对于结构化切片后依然过长的内容，使用字符切片器二次切分
-                    rec_splits = self.rec_splitter.split_documents(md_splits)
-                    
-                    # 合并文档原本的 Metadata 和切片过程中产生的 Metadata (如 Header)
-                    for chunk in rec_splits:
-                        chunk.metadata.update(doc.metadata)
-                        split_docs.append(chunk)
-
-                if progress_callback:
-                    progress_callback((i + 0.7) / total_files, f"文件切片完成: {file_name}")
-
-                for doc in split_docs:
                     doc.metadata["agent_id"] = agent_id
                     doc.metadata["file_id"] = file_id
                     doc.metadata["file_name"] = file_name
                     doc.metadata["md5"] = file_meta.get("md5")
-                all_docs.extend(split_docs)
+
+                if parent_retriever_enabled:
+                    # 使用父文档检索器
+                    retriever = self.store_factory.get_parent_retriever(agent["vector_collection_name"])
+                    retriever.add_documents(docs)
+                else:
+                    # 原有的切片逻辑
+                    split_docs = []
+                    for doc in docs:
+                        # 第一步：根据 Markdown 标题进行结构化切片
+                        md_splits = self.md_splitter.split_text(doc.page_content)
+                        # 第二步：对于结构化切片后依然过长的内容，使用字符切片器二次切分
+                        rec_splits = self.rec_splitter.split_documents(md_splits)
+                        
+                        # 合并文档原本的 Metadata 和切片过程中产生的 Metadata (如 Header)
+                        for chunk in rec_splits:
+                            chunk.metadata.update(doc.metadata)
+                            split_docs.append(chunk)
+                    all_docs.extend(split_docs)
+                
                 indexed_file_ids.append(file_id)
+                if progress_callback:
+                    progress_callback((i + 0.7) / total_files, f"文件处理完成: {file_name}")
             except Exception as e:
                 logger.error(f"处理文件 {file_name} 失败: {str(e)}")
 
-        if not all_docs:
+        if not indexed_file_ids:
             logger.warning(f"Agent {agent_id} 没有有效文本内容")
             raise ValueError("没有可写入向量库的有效文本内容")
 
         if progress_callback:
             progress_callback(0.95, "正在写入向量库...")
 
-        logger.info(f"Agent {agent_id} 开始写入向量库，共 {len(all_docs)} 个切片")
-        store.add_documents(all_docs)
+        if not parent_retriever_enabled and all_docs:
+            logger.info(f"Agent {agent_id} 开始写入向量库，共 {len(all_docs)} 个切片")
+            store = self.store_factory.get_store(agent["vector_collection_name"])
+            store.add_documents(all_docs)
 
         for file_id in indexed_file_ids:
             self.file_service.mark_indexed(db, agent_id, file_id)

@@ -1,7 +1,0 @@
-app_name: RAG_MVP
-upload_max_files: 20
-allowed_file_types:
- - txt
- - md
- - pdf
- - docx
